@@ -51,13 +51,18 @@ namespace LogSender
 
         public async static void Vizov(object obj)
         {
-
+           
 
             int x = (int)obj;
+
+            Console.WriteLine("otpravka {0}", 0);
+
             Handler hand = new Handler(address, port, new BinarySerializationProvider());
+ Printer p = new Printer();
+
             Tuple<Log, ResponseServer> result = await hand.Connect(new Log(x, nameClient, DateTime.Now));
 
-            Printer p = new Printer();
+           
             p.Print(result.Item1, result.Item2);
 
         }
@@ -276,17 +281,18 @@ namespace LogSender
 
 
 
-    interface IPrinter
-    {
-        void Print(Log log, ResponseServer response);
-    }
-
-    class Printer : IPrinter
+  
+    class Printer 
     {
         public void Print(Log log, ResponseServer response)
         {
         if (log != null && response != null)
-            Console.WriteLine(log.ToString());
+            { 
+               
+Console.Write( "{0} запрос №{1} отправлен на сервер и ", log.Date, log.Id.ToString());
+                Console.WriteLine(response);
+            }
+            
         }
     }
 }
