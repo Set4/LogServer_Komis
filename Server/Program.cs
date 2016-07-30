@@ -6,9 +6,13 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.Serialization.Formatters.Binary;
+
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+
+using System.Runtime.Serialization.Json;
+using System.Runtime.Serialization;
 
 namespace Server
 {
@@ -21,7 +25,7 @@ namespace Server
         const int intervalTimer = 60000;
 
 
-        const int zaderjkatimera = 0;
+        const int zaderjkatimera = 60000;
 
         public async static void Vizov(object obj)
         {
@@ -52,7 +56,7 @@ namespace Server
 
                     TcpClient client = listener.AcceptTcpClient();
                     Console.WriteLine("Новое подключение");
-                    Handler clientObject = new Handler(client, new BinarySerializationProvider(), new LogProvider());
+                    Handler clientObject = new Handler(client, new JsonSerializationProvider(), new LogProvider());
 
 
                     Task task = Task.Factory.StartNew(clientObject.Process);
@@ -146,22 +150,33 @@ namespace Server
 
     }
 
+   
 
-    [Serializable]
+        [Serializable, DataContract]
     class Log
     {
+        [DataMember]
         public int Id { get; set; }
 
+        [DataMember]
         public string NameClient { get; set; }
 
+        [DataMember]
         public string Date { get; set; }
 
     }
 
-    [Serializable]
+
+    [Serializable, DataContract]
     class ResponseServer
     {
+        [DataMember]
         public string Result { get; set; }
+
+        public ResponseServer()
+        {
+
+        }
 
         public ResponseServer(string result)
         {
@@ -220,6 +235,57 @@ namespace Server
 
 
     }
+
+
+    class JsonSerializationProvider:ISerializationProvider
+    {
+        public byte[] Serialize(ResponseServer data)
+        {
+            if (data != null)
+            {
+                try
+                {
+                    using (MemoryStream stream = new MemoryStream())
+                    {
+                        new DataContractJsonSerializer(typeof(ResponseServer)).WriteObject(stream, data);
+                        return stream.ToArray();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+                }
+            }
+            return new byte[0];
+        }
+
+
+        public Log Deserialize(byte[] data)
+        {
+
+
+            if (data != null && data.Length != 0)
+                try
+                {
+                    Log resp;
+                    using (MemoryStream stream = new MemoryStream(data))
+                    { 
+                         resp = (Log)new DataContractJsonSerializer(typeof(Log)).ReadObject(stream);
+                    }
+                    return resp;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+
+                }
+
+
+            return null;
+        }
+
+    }
+
 
     interface ISerializationProvider
     {

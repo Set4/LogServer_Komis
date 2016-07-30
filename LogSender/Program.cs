@@ -4,7 +4,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,24 +24,23 @@ namespace LogSender
         const int intervalTimer = 10000;
 
 
-        const int zaderjkatimera = 0;
+        const int zaderjkatimera = 10000;
 
-
-
+ static int numberResponse = 1;
 
         static void Main(string[] args)
         {
-            int numberResponse = 0;
+          
 
 
-            Console.WriteLine("Vvedite nazvanie clienta");
+            Console.WriteLine("Введите имя клиента");
             nameClient = Console.ReadLine();
 
 
             Console.WriteLine("Запуст отправки сообщений на сервер {0} с периодом в {1}", address + ":" + port, intervalTimer.ToString());
 
             // устанавливаем метод обратного вызова
-            TimerCallback tm = new TimerCallback(Vizov);
+            TimerCallback tm = new TimerCallback(Send);
             // создаем таймер
             Timer timer = new Timer(tm, numberResponse, zaderjkatimera, intervalTimer);
 
@@ -49,20 +50,18 @@ namespace LogSender
 
         }
 
-        public async static void Vizov(object obj)
+        public async static void Send(object obj)
         {
-           
 
-            int x = (int)obj;
+            Console.WriteLine("Отправка {0}", numberResponse);
 
-            Console.WriteLine("otpravka {0}", 0);
+            Handler hand = new Handler(address, port, new JsonSerializationProvider());
+            Printer p = new Printer();
 
-            Handler hand = new Handler(address, port, new BinarySerializationProvider());
- Printer p = new Printer();
+            Tuple<Log, ResponseServer> result = await hand.Connect(new Log(numberResponse, nameClient, DateTime.Now));
+            numberResponse++;
 
-            Tuple<Log, ResponseServer> result = await hand.Connect(new Log(x, nameClient, DateTime.Now));
 
-           
             p.Print(result.Item1, result.Item2);
 
         }
@@ -97,12 +96,7 @@ namespace LogSender
 
 
 
-        /// <summary>
-        /// соединение с сервером
-        /// </summary>
-        /// <param name="request">запрос к серверу</param>
-        /// <param name="serializ">класс сериализатор\десериализатор</param>
-        /// <returns>DeEncryptionResult</returns>
+     
         public async Task<Tuple<Log, ResponseServer>> Connect(Log request)
         {
 
@@ -140,6 +134,7 @@ namespace LogSender
                 }
                 while (stream.DataAvailable);
 
+                
 
                 return new Tuple<Log, ResponseServer>(request, serializator.Deserialize(result));
 
@@ -163,20 +158,29 @@ namespace LogSender
 
 
 
-    [Serializable]
+
+    [Serializable, DataContract]
     class Log
     {
+        [DataMember]
         public int Id { get; private set; }
 
+        [DataMember]
         public string NameClient { get; private set; }
 
         [NonSerialized]
         private DateTime _date;
+
+        [DataMember]
         public string Date
         {
             get
             {
-                return _date.ToString("0:dd/MM/yyyy H:mm:ss");
+                return _date.ToString("dd/MM/yyyy H:mm:ss");
+            }
+            set
+            {
+                Date = value;
             }
         }
 
@@ -189,9 +193,11 @@ namespace LogSender
 
     }
 
-    [Serializable]
+
+    [Serializable, DataContract]
     class ResponseServer
     {
+        [DataMember]
         public string Result { get; set; }
 
         public ResponseServer()
@@ -280,19 +286,107 @@ namespace LogSender
     }
 
 
+    class JsonSerializationProvider : ISerializationProvider
+    {
 
-  
+        public byte[] Serialize(Log data)
+        {
+            if (data != null)
+            {
+                try
+                {
+                    using (MemoryStream stream = new MemoryStream())
+                    {
+                        new DataContractJsonSerializer(typeof(Log)).WriteObject(stream, data);
+                        return stream.ToArray();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+                }
+            }
+
+            return new byte[0];
+        }
+
+
+        public ResponseServer Deserialize(byte[] data)
+        {
+
+            if (data != null && data.Length != 0)
+            {
+                try
+                {
+
+
+                    ResponseServer resp;
+                    using (MemoryStream stream = new MemoryStream(data))
+                    {
+                        resp = (ResponseServer)new DataContractJsonSerializer(typeof(ResponseServer)).ReadObject(stream);
+                    }
+
+
+                    return resp;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+                }
+            }
+
+            return null;
+        }
+
+    }
+
+
+
     class Printer 
     {
         public void Print(Log log, ResponseServer response)
         {
-        if (log != null && response != null)
-            { 
-               
-Console.Write( "{0} запрос №{1} отправлен на сервер и ", log.Date, log.Id.ToString());
-                Console.WriteLine(response);
+            if (log != null)
+            {
+
+                Console.Write("{0} запрос №{1} отправлен на сервер и ", log.Date, log.Id.ToString());
+
+                if (response != null)
+                {
+                    switch (response.Result)
+                    {
+                        case "Error":
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine("Ответ от сервера: {0} ", "Ошибка");
+                            Console.ResetColor();
+                            break;
+
+                        case "NoSave":
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine("Ответ от сервера: {0} ", "Лог не сохранен на сервере");
+                            Console.ResetColor();
+                            break;
+                        case "Save":
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine("Ответ от сервера: {0} ", "Лог сохранен на сервере");
+                            Console.ResetColor();
+                            break;
+
+                        default:
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine("Ответ от сервера: {0} ", response.Result);
+                            Console.ResetColor();
+                            break;
+                    }
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("Неудалось прочитать ответ от сервера");
+                    Console.ResetColor();
+                }
             }
-            
+
         }
     }
 }
