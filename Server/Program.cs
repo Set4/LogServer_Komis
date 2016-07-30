@@ -1,13 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.Serialization.Formatters.Binary;
-
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -18,29 +14,56 @@ namespace Server
 {
     class Program
     {
-        const int port = 8888;
-        const string address = "127.0.0.1";
         static TcpListener listener;
+  static object Locker = new object();
 
+        /// <summary>
+        /// порт сервера
+        /// </summary>
+        const int port = 8888;
+        /// <summary>
+        /// адрес сервера
+        /// </summary>
+        const string address = "127.0.0.1";
+
+
+        /// <summary>
+        /// интервал срабатывания таймера
+        /// </summary>
         const int intervalTimer = 60000;
 
+        /// <summary>
+        /// задержка перед стартом отсчета
+        /// </summary>
+        const int waitTimer = 60000;
 
-        const int zaderjkatimera = 60000;
+        /// <summary>
+        /// путь и имя файла-лога
+        /// </summary>
+      static  string pathLogFile = "logfile.json";
 
-        public async static void Vizov(object obj)
+
+
+
+        /// <summary>
+        /// обработчик таймера
+        /// </summary>
+        /// <param name="obj"></param>
+        public static void TimerSender(object obj)
         {
 
+            LogProvider logprov = new LogProvider(Locker, pathLogFile);
 
-            Console.WriteLine("op");
-
+            string result = logprov.RotationLog();
+            Console.WriteLine("Ротация Лог-файла: {0} ", result);
         }
 
         static void Main(string[] args)
         {
             // устанавливаем метод обратного вызова
-            TimerCallback tm = new TimerCallback(Vizov);
+            TimerCallback tm = new TimerCallback(TimerSender);
             // создаем таймер
-            Timer timer = new Timer(tm, null, zaderjkatimera, intervalTimer);
+            Timer timer = new Timer(tm, null, waitTimer, intervalTimer);
 
             try
             {
@@ -52,11 +75,11 @@ namespace Server
                 while (true)
                 {
 
-                    //+ojidanie vvoda command ы console
+                 
 
                     TcpClient client = listener.AcceptTcpClient();
                     Console.WriteLine("Новое подключение");
-                    Handler clientObject = new Handler(client, new JsonSerializationProvider(), new LogProvider());
+                    Handler clientObject = new Handler(client, new JsonSerializationProvider(), new LogProvider(Locker, pathLogFile));
 
 
                     Task task = Task.Factory.StartNew(clientObject.Process);
@@ -76,6 +99,8 @@ namespace Server
         }
     }
 
+
+
     class Handler
     {
 
@@ -92,7 +117,7 @@ namespace Server
         }
 
         /// <summary>
-        /// обработка соединения с клиентом(получение сообщения, кодирование, отпревка результата)
+        /// обработка соединения с клиентом(получение сообщения-отпрaвка результата)
         /// </summary>
         public void Process()
         {
@@ -111,7 +136,7 @@ namespace Server
 
                     bytes = stream.Read(data, 0, data.Length);
 
-                    //~~
+               
                     if (bytes < data.Length)
                     {
                         byte[] newdata = new byte[bytes];
@@ -150,26 +175,40 @@ namespace Server
 
     }
 
-   
 
-        [Serializable, DataContract]
+    /// <summary>
+    /// Лог отправляемый клиентом
+    /// </summary>
+    [Serializable, DataContract]
     class Log
     {
+        /// <summary>
+        /// порядковый номер
+        /// </summary>
         [DataMember]
         public int Id { get; set; }
-
+        /// <summary>
+        /// имя отправителя
+        /// </summary>
         [DataMember]
         public string NameClient { get; set; }
-
+        /// <summary>
+        /// время и дата отправления
+        /// </summary>
         [DataMember]
         public string Date { get; set; }
 
     }
 
-
+    /// <summary>
+    /// Ответ сервера
+    /// </summary>
     [Serializable, DataContract]
     class ResponseServer
     {
+        /// <summary>
+        /// результат операции с логом на сервере
+        /// </summary>
         [DataMember]
         public string Result { get; set; }
 
@@ -184,57 +223,6 @@ namespace Server
         }
     }
 
-
-    class BinarySerializationProvider : ISerializationProvider
-    {
-
-        public byte[] Serialize(ResponseServer data)
-        {
-            if (data != null)
-            {
-                try
-                {
-                    using (MemoryStream stream = new MemoryStream())
-                    {
-                        new BinaryFormatter().Serialize(stream, data);
-                        return Convert.FromBase64String(Convert.ToBase64String(stream.ToArray()));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine(ex.ToString());
-                }
-            }
-            return new byte[0];
-        }
-
-
-        public Log Deserialize(byte[] data)
-        {
-
-
-            if (data != null && data.Length != 0)
-                try
-                {
-                    Log resp;
-                    using (MemoryStream stream = new MemoryStream(data))
-                    {
-                        resp = (Log)new BinaryFormatter().Deserialize(stream);
-                    }
-                    return resp;
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine(ex.ToString());
-
-                }
-
-
-            return null;
-        }
-
-
-    }
 
 
     class JsonSerializationProvider:ISerializationProvider
@@ -290,35 +278,94 @@ namespace Server
     interface ISerializationProvider
     {
         /// <summary>
-        /// сериализация запроса к серверу
+        /// сериализация ответа сервера
         /// </summary>
         /// <param name="data">запрос к серверу</param>
         /// <returns>массив byte[]</returns>
         byte[] Serialize(ResponseServer data);
+
+
         /// <summary>
-        ///  десериализация запроса от сервера
+        ///  десериализация запроса клиента
         /// </summary>
         /// <param name="data">массив byte[]-ответ сервера</param>
-        /// <returns>ответ(от сервера)-type Response </returns>
+        /// <returns></returns>
         Log Deserialize(byte[] data);
     }
 
     interface ILogProvider
     {
+        /// <summary>
+        /// сохранение лога
+        /// </summary>
+        /// <param name="log">лог от клиента</param>
+        /// <returns>результат операции</returns>
         string SaveLog(Log log);
+        /// <summary>
+        /// рокация лога
+        /// </summary>
+        /// <returns>результат операции</returns>
         string RotationLog();
     }
 
     class LogProvider : ILogProvider
     {
+
+ private object Locker;
+        /// <summary>
+        /// путь к файлу лога
+        /// </summary>
+        string path;
+        public LogProvider(object locker, string path)
+        {
+            Locker = locker;
+            this.path = path;
+        }
+       
+        
         public string RotationLog()
         {
-            throw new NotImplementedException();
+            string result = "error";
+            lock (Locker)
+            {
+                try
+                {
+                    File.Delete(path);
+                    result = "rotation";
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+                    result = "error";
+                }
+              
+            }
+            return result;
         }
 
         public string SaveLog(Log log)
         {
-            return "OK";
+            string result = "NoSave";
+            lock (Locker)
+            {
+                try {
+                DataContractJsonSerializer jsonFormatter = new DataContractJsonSerializer(typeof(Log));
+
+                using (FileStream fs = new FileStream(path, FileMode.Append, FileAccess.Write))
+                {      
+                   jsonFormatter.WriteObject(fs, log);
+                }
+
+                    result = "Save";
+ }
+                catch(Exception ex)
+                {
+                    Debug.WriteLine(ex.ToString());
+                    result = "NoSave";
+                }
+            }
+
+            return result;
         }
     }
 }
