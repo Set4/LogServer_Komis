@@ -37,11 +37,7 @@ namespace Server
         /// </summary>
         const int waitTimer = 60000;
 
-        /// <summary>
-        /// путь и имя файла-лога
-        /// </summary>
-      static  string pathLogFile = "logfile.json";
-
+     
 
 
 
@@ -52,7 +48,7 @@ namespace Server
         public static void TimerSender(object obj)
         {
 
-            LogProvider logprov = new LogProvider(Locker, pathLogFile);
+            LogProvider logprov = new LogProvider(Locker);
 
             string result = logprov.RotationLog();
             Console.WriteLine("Ротация Лог-файла: {0} ", result);
@@ -79,7 +75,7 @@ namespace Server
 
                     TcpClient client = listener.AcceptTcpClient();
                     Console.WriteLine("Новое подключение");
-                    Handler clientObject = new Handler(client, new JsonSerializationProvider(), new LogProvider(Locker, pathLogFile));
+                    Handler clientObject = new Handler(client, new JsonSerializationProvider(), new LogProvider(Locker));
 
 
                     Task task = Task.Factory.StartNew(clientObject.Process);
@@ -312,14 +308,42 @@ namespace Server
     {
 
  private object Locker;
+
         /// <summary>
-        /// путь к файлу лога
+        /// имя временного файла логов
         /// </summary>
-        string path;
-        public LogProvider(object locker, string path)
+        const string path="logfile.json";
+
+        /// <summary>
+        /// имя папки логов
+        /// </summary>
+        const string directory="Logs";
+
+
+ /// <summary>
+        /// полный путь к файлу лога
+        /// </summary>
+        string FullPathLog
+        {
+            get
+            {
+                return directory + "\\" + path;
+            }
+        }
+
+        public static void CreateLogDir()
+        {
+            if (!Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+        }
+
+        public LogProvider(object locker)
         {
             Locker = locker;
-            this.path = path;
+          
+       
+
+            CreateLogDir();
         }
        
         
@@ -330,13 +354,21 @@ namespace Server
             {
                 try
                 {
-                    File.Delete(path);
-                    result = "rotation";
+
+                    if (File.Exists(FullPathLog))
+                    {
+                        string newnamefile = "Log (" + DateTime.Now.ToString("dd/MM/yyyy H.mm.ss") + ").json";
+                        File.Move(FullPathLog, directory + "\\" + newnamefile);
+
+                        result = "rotation";
+                    }
+                    else
+                        result = "rotation no need";
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine(ex.ToString());
-                    result = "error";
+                    result = "error rotation";
                 }
               
             }
@@ -348,17 +380,18 @@ namespace Server
             string result = "NoSave";
             lock (Locker)
             {
-                try {
-                DataContractJsonSerializer jsonFormatter = new DataContractJsonSerializer(typeof(Log));
+                try
+                {
+                    DataContractJsonSerializer jsonFormatter = new DataContractJsonSerializer(typeof(Log));
 
-                using (FileStream fs = new FileStream(path, FileMode.Append, FileAccess.Write))
-                {      
-                   jsonFormatter.WriteObject(fs, log);
-                }
+                    using (FileStream fs = new FileStream(FullPathLog, FileMode.Append, FileAccess.Write))
+                    {
+                        jsonFormatter.WriteObject(fs, log);
+                    }
 
                     result = "Save";
- }
-                catch(Exception ex)
+                }
+                catch (Exception ex)
                 {
                     Debug.WriteLine(ex.ToString());
                     result = "NoSave";
